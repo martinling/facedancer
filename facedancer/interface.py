@@ -243,17 +243,23 @@ class USBInterface(USBDescribable, AutoInstantiable, USBRequestHandler):
     # Alternate interface support.
     #
 
-    # TODO: support these!
-
     @standard_request_handler(number=USBStandardRequests.SET_INTERFACE)
     @to_this_interface
     def handle_set_interface_request(self, request: USBControlRequest):
         """ Handle SET_INTERFACE requests; per USB2 [9.4.10] """
         log.debug(f"f{self.name} received SET_INTERFACE request")
-        # We don't support alternate interface settings; so ACK
-        # alternate setting zero, and stall all others.
-        if request.value == 0:
-            request.acknowledge()
+
+        if self.parent:
+            try:
+                # Find this alternate setting and switch to it.
+                number = request.index_low
+                alternate = request.value
+                identifier = (number, alternate)
+                interface = self.parent.interfaces[identifier]
+                self.parent.active_interfaces[number] = interface
+                request.acknowledge()
+            except KeyError:
+                request.stall()
         else:
             request.stall()
 

@@ -887,6 +887,15 @@ class USBDevice(USBBaseDevice):
         else:
             try:
                 self.configuration = self.configurations[request.value]
+
+                # On a configuration change, all interfaces revert
+                # to alternate setting 0.
+                self.configuration.active_interfaces = {
+                    interface.number: interface
+                        for interface in self.configuration.get_interfaces()
+                            if interface.alternate == 0
+                }
+
                 request.acknowledge()
             except KeyError:
                 request.stall()
@@ -902,11 +911,13 @@ class USBDevice(USBBaseDevice):
         """ Handle GET_INTERFACE requests; per USB2 [9.4.4] """
         log.debug("received GET_INTERFACE request")
 
-        # TODO: support alternate interfaces.
-        # Since we don't support alternate interfaces [yet], we'll always
-        # indicate use of interface zero.
-        if self.configuration and (request.index_low in self.configuration.interfaces):
-            request.reply(b'\x00')
+        if self.configuration:
+            try:
+                number = request.index_low
+                interface = self.configuration.active_interfaces[number]
+                request.reply(bytes([interface.alternate]))
+            except KeyError:
+                request.stall()
         else:
             request.stall()
 
@@ -917,10 +928,17 @@ class USBDevice(USBBaseDevice):
         """ Handle SET_INTERFACE requests; per USB2 [9.4.10] """
         log.debug(f"f{self.name} received SET_INTERFACE request")
 
-        # We don't support alternate interface settings; so ACK
-        # alternate setting zero, and stall all others.
-        if request.value == 0:
-            request.acknowledge()
+        if self.configuration:
+            try:
+                # Find this alternate setting and switch to it.
+                number = request.index_low
+                alternate = request.value
+                identifier = (number, alternate)
+                interface = self.configuration.interfaces[identifier]
+                self.configuration.active_interfaces[number] = interface
+                request.acknowledge()
+            except KeyError:
+                request.stall()
         else:
             request.stall()
 
